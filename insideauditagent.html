@@ -1,0 +1,499 @@
+<title>Inside the Audit Agent</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#F5F6F8; --surface:#FFFFFF; --surface-2:#EBEEF3; --border:#D7DBE3;
+    --text:#171A21; --text-dim:#4B5160; --text-faint:#838A99;
+    --accent:#0E7C74; --accent-soft:#E1F2EF; --accent-strong:#0A5A54;
+    --gov:#2451A4; --gov-soft:#E7EEFA;
+    --money:#A2591A; --money-soft:#FBEEDD;
+    --danger:#B3261E; --danger-soft:#FBEAE9;
+    --good:#1F7A3D; --good-soft:#E9F5EC;
+    --code-bg:#12141B; --code-text:#E7E9F0; --code-dim:#9AA0B0;
+    --shadow: 0 1px 2px rgba(20,22,30,.04), 0 6px 20px rgba(20,22,30,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0E1116; --surface:#171B22; --surface-2:#1E232C; --border:#2B313C;
+      --text:#E9EBF0; --text-dim:#AAB1C0; --text-faint:#727A8C;
+      --accent:#4FD1C5; --accent-soft:#123330; --accent-strong:#7BE0D6;
+      --gov:#84AAF2; --gov-soft:#152140;
+      --money:#E3A868; --money-soft:#2C2013;
+      --danger:#F2867D; --danger-soft:#391815;
+      --good:#79D69B; --good-soft:#122A1A;
+      --code-bg:#05070A; --code-text:#DEE1EA; --code-dim:#7C8296;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0E1116; --surface:#171B22; --surface-2:#1E232C; --border:#2B313C;
+    --text:#E9EBF0; --text-dim:#AAB1C0; --text-faint:#727A8C;
+    --accent:#4FD1C5; --accent-soft:#123330; --accent-strong:#7BE0D6;
+    --gov:#84AAF2; --gov-soft:#152140;
+    --money:#E3A868; --money-soft:#2C2013;
+    --danger:#F2867D; --danger-soft:#391815;
+    --good:#79D69B; --good-soft:#122A1A;
+    --code-bg:#05070A; --code-text:#DEE1EA; --code-dim:#7C8296;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box;}
+  body{background:var(--bg); color:var(--text); font-family:"IBM Plex Sans",system-ui,sans-serif; line-height:1.6;}
+  code, .mono{font-family:"IBM Plex Mono",ui-monospace,monospace;}
+
+  .wrap{max-width:840px; margin:0 auto; padding:0 24px 120px;}
+  .wide{max-width:960px;}
+
+  /* ---------- Top nav ---------- */
+  .topnav{position:sticky; top:0; z-index:20; background:color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter:blur(8px); border-bottom:1px solid var(--border);}
+  .topnav-inner{max-width:960px; margin:0 auto; padding:12px 24px; display:flex; gap:18px; overflow-x:auto; white-space:nowrap; align-items:center;}
+  .topnav a{color:var(--text-dim); text-decoration:none; font-size:13px; font-weight:500; letter-spacing:.01em;}
+  .topnav a:hover{color:var(--accent);}
+  .topnav .brand{color:var(--text); font-weight:700; margin-right:6px; font-size:14px;}
+
+  /* ---------- Hero ---------- */
+  .hero{padding:64px 0 40px;}
+  .eyebrow{display:inline-flex; align-items:center; gap:8px; font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--accent-strong); background:var(--accent-soft); padding:5px 12px; border-radius:100px; margin-bottom:20px;}
+  h1{font-size:40px; line-height:1.12; margin:0 0 18px; font-weight:700; letter-spacing:-.01em; text-wrap:balance;}
+  .lede{font-size:18px; color:var(--text-dim); max-width:640px; margin:0 0 8px;}
+  .lede b{color:var(--text); font-weight:600;}
+
+  h2{font-size:26px; margin:0 0 6px; font-weight:700; letter-spacing:-.01em; scroll-margin-top:70px;}
+  h3{font-size:17px; margin:28px 0 10px; font-weight:600;}
+  .section-kicker{font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--text-faint); margin-bottom:8px;}
+  section{padding:52px 0; border-top:1px solid var(--border);}
+  section > .lede{margin-bottom:28px;}
+  p{margin:0 0 14px; color:var(--text-dim);}
+  strong{color:var(--text); font-weight:600;}
+  a{color:var(--accent);}
+
+  /* ---------- Diagram card ---------- */
+  .diagram-card{background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:24px; box-shadow:var(--shadow); margin:20px 0;}
+  svg text{font-family:"IBM Plex Sans",sans-serif;}
+  svg .mono-label{font-family:"IBM Plex Mono",monospace;}
+  .box-title{font-weight:700; font-size:14px; fill:var(--text);}
+  .box-sub{font-size:11px; fill:var(--text-dim);}
+  .box-note{font-size:10.5px; fill:var(--text-faint); font-style:italic;}
+  .arrow-line{stroke:var(--text-dim); stroke-width:2; fill:none;}
+  .arrow-line.claude{stroke:var(--accent); stroke-width:2.25;}
+  .arrow-label{font-size:11.5px; fill:var(--text-dim);}
+  .arrow-label.claude{fill:var(--accent-strong); font-weight:600;}
+  .box-browser rect, .box-claude rect{fill:var(--accent-soft); stroke:var(--accent);}
+  .box-agent rect{fill:var(--surface-2); stroke:var(--text-faint);}
+  .box-mcp rect, .box-pg rect, .box-log rect{fill:var(--gov-soft); stroke:var(--gov);}
+  figcaption{margin-top:14px; font-size:13px; color:var(--text-faint); text-align:center;}
+
+  /* ---------- numbered steps ---------- */
+  .steps{list-style:none; margin:24px 0 0; padding:0; display:flex; flex-direction:column; gap:14px;}
+  .steps li{display:flex; gap:16px; align-items:flex-start;}
+  .step-num{flex:none; width:28px; height:28px; border-radius:50%; background:var(--surface-2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; color:var(--text-dim);}
+  .step-num.claude{background:var(--accent-soft); border-color:var(--accent); color:var(--accent-strong);}
+  .step-body p{margin:0; color:var(--text-dim); font-size:15px;}
+  .step-body b{color:var(--text);}
+
+  /* ---------- file map ---------- */
+  details.filegroup{background:var(--surface); border:1px solid var(--border); border-radius:12px; margin-bottom:12px; box-shadow:var(--shadow); overflow:hidden;}
+  details.filegroup summary{cursor:pointer; padding:14px 18px; font-weight:600; font-size:15px; display:flex; align-items:center; justify-content:space-between; list-style:none;}
+  details.filegroup summary::-webkit-details-marker{display:none;}
+  details.filegroup summary .tag{font-size:11px; font-weight:600; color:var(--text-faint); font-style:italic;}
+  details.filegroup summary::after{content:"+"; font-size:18px; color:var(--text-faint); margin-left:12px;}
+  details.filegroup[open] summary::after{content:"–";}
+  .filetable{width:100%; border-collapse:collapse; border-top:1px solid var(--border);}
+  .filetable td{padding:10px 18px; font-size:13.5px; vertical-align:top; border-bottom:1px solid var(--border);}
+  .filetable tr:last-child td{border-bottom:none;}
+  .filetable td:first-child{white-space:nowrap; font-weight:600; color:var(--text); width:1%;}
+  .filetable td:last-child{color:var(--text-dim);}
+
+  /* ---------- dimension cards ---------- */
+  .dim-grid{display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin:20px 0 28px;}
+  .dim-card{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 12px; text-align:center; box-shadow:var(--shadow);}
+  .dim-card .ic{font-size:22px; display:block; margin-bottom:8px;}
+  .dim-card b{display:block; font-size:13px; margin-bottom:4px;}
+  .dim-card p{font-size:12px; margin:0; color:var(--text-faint); line-height:1.4;}
+
+  .gov-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin:8px 0 8px;}
+  .gov-card{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px; box-shadow:var(--shadow);}
+  .gov-card b{display:block; font-size:14.5px; margin-bottom:6px; color:var(--text);}
+  .gov-card p{font-size:13.5px; margin:0;}
+  .gov-card code{font-size:12px; background:var(--surface-2); padding:1px 5px; border-radius:4px;}
+
+  /* ---------- callout ---------- */
+  .callout{border-radius:12px; padding:18px 20px; margin:20px 0; font-size:14.5px; border:1px solid; }
+  .callout p{margin:0; color:inherit;}
+  .callout b{color:inherit;}
+  .callout.accent{background:var(--accent-soft); border-color:var(--accent); color:var(--accent-strong);}
+  .callout.money{background:var(--money-soft); border-color:var(--money); color:var(--money);}
+  .callout.gov{background:var(--gov-soft); border-color:var(--gov); color:var(--gov);}
+
+  /* ---------- mode chips ---------- */
+  .modes{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin:24px 0;}
+  .mode-card{background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:10px;}
+  .mode-card.reco{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), var(--shadow);}
+  .mode-title{font-size:15px; font-weight:700;}
+  .mode-badge{align-self:flex-start; font-size:10.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:3px 8px; border-radius:100px; background:var(--accent-soft); color:var(--accent-strong);}
+  .mode-pipe{display:flex; align-items:center; flex-wrap:wrap; gap:6px; font-size:12px; font-family:"IBM Plex Mono",monospace; margin:4px 0;}
+  .chip{padding:4px 8px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); white-space:nowrap;}
+  .chip.claude{background:var(--accent-soft); border-color:var(--accent); color:var(--accent-strong); font-weight:600;}
+  .chip.off{background:var(--surface-2); color:var(--text-faint); text-decoration:line-through;}
+  .mode-card p{font-size:13px; margin:0; color:var(--text-dim);}
+  .mode-cost{font-size:13px; font-weight:700; color:var(--money); margin-top:auto; padding-top:10px; border-top:1px solid var(--border);}
+
+  /* ---------- tables ---------- */
+  table.data{width:100%; border-collapse:collapse; margin:18px 0; font-size:13.5px; background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:var(--shadow);}
+  table.data th{background:var(--surface-2); text-align:left; padding:10px 14px; font-weight:600; color:var(--text-dim); font-size:12px; text-transform:uppercase; letter-spacing:.03em;}
+  table.data td{padding:10px 14px; border-top:1px solid var(--border); color:var(--text-dim);}
+  table.data td:first-child, table.data th:first-child{color:var(--text); font-weight:600;}
+  table.data tr.total td{font-weight:700; color:var(--text); background:var(--surface-2);}
+  .num{font-variant-numeric:tabular-nums; font-family:"IBM Plex Mono",monospace; text-align:right;}
+  table.data td.num, table.data th.num{text-align:right;}
+
+  footer{padding:40px 0 0; color:var(--text-faint); font-size:12.5px; text-align:center;}
+
+  @media (max-width:720px){
+    h1{font-size:30px;}
+    .dim-grid{grid-template-columns:repeat(2,1fr);}
+    .gov-grid, .modes{grid-template-columns:1fr;}
+    section{padding:36px 0;}
+  }
+</style>
+
+<nav class="topnav">
+  <div class="topnav-inner">
+    <span class="brand">🧭 Inside the Audit Agent</span>
+    <a href="#big-picture">Big picture</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#files">Files</a>
+    <a href="#framework">Framework</a>
+    <a href="#llm">Where Claude fits</a>
+    <a href="#audit-ready">Audit-ready</a>
+    <a href="#minimize">Less LLM</a>
+    <a href="#cost">Cost</a>
+  </div>
+</nav>
+
+<div class="wrap">
+  <div class="hero">
+    <span class="eyebrow">● Beginner walkthrough</span>
+    <h1>How the Data Quality &amp; Governance Agent actually works</h1>
+    <p class="lede">A step-by-step, diagram-first tour of the whole system — <b>Streamlit + Claude + MCP + Postgres</b> — for someone who has never seen it before. What each piece does, exactly where the AI is involved, what it costs, and how to use less of it.</p>
+  </div>
+
+  <!-- ================= BIG PICTURE ================= -->
+  <section id="big-picture">
+    <div class="section-kicker">01 · The problem, in plain English</div>
+    <h2>What are we actually building?</h2>
+    <p>Companies keep their important data — customers, orders, transactions — in databases. Over time those databases get messy: some fields are left blank, the same customer gets entered twice, an order points to a customer that was deleted, a hidden column full of email addresses nobody remembers is personal information. Finding and reporting on this stuff, over and over, by hand, doesn't scale.</p>
+    <p>So we built a tool that does it automatically: you click one button, and an AI (Claude) <b>looks at your database, decides what to check, runs those checks, and writes a report</b> — a bit like a very fast, very consistent junior data-quality analyst.</p>
+    <p>The catch: an "AI that pokes around your production database" sounds risky. So almost everything about how this is built exists to make that <em>safe</em> and <em>provable</em> — the AI can only read (never write), it never sees a real email address or phone number, and every single thing it does is written to a permanent log. That combination — safe by construction, plus a paper trail — is what "audit-ready" means here.</p>
+    <div class="callout accent">
+      <p><b>Three moving parts, one job each:</b> a website you click buttons on (<b>Streamlit</b>), an AI that decides what to investigate (<b>Claude</b>), and a locked-down toolbox of database operations the AI is allowed to use (<b>MCP server</b>). None of the three can do their job without the other two.</p>
+    </div>
+  </section>
+
+  <!-- ================= ARCHITECTURE ================= -->
+  <section id="architecture">
+    <div class="section-kicker">02 · The five pieces and how they talk</div>
+    <h2>Architecture, end to end</h2>
+    <p class="lede">Follow the diagram top to bottom. The <span style="color:var(--accent-strong); font-weight:600;">teal</span> boxes are where the actual "thinking" happens (the browser and Claude); the <span style="color:var(--gov); font-weight:600;">blue</span> boxes are the governed data layer — the part that's locked down and logged.</p>
+
+    <figure class="diagram-card">
+      <svg viewBox="0 0 880 740" role="img" aria-label="Diagram showing the Streamlit browser and the Agent Engine exchanging messages with Claude at the top; the Agent Engine connecting down through the MCP Server to a read-only PostgreSQL database at the bottom; and the MCP Server writing every action to an Audit Log on the side.">
+        <defs>
+          <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--text-dim)"></path>
+          </marker>
+          <marker id="arrowhead-claude" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"></path>
+          </marker>
+        </defs>
+
+        <!-- Boxes -->
+        <g class="box-browser">
+          <rect x="40" y="40" width="260" height="100" rx="14" stroke-width="1.5"></rect>
+          <text x="170" y="70" text-anchor="middle" class="box-title">Your Browser</text>
+          <text x="170" y="90" text-anchor="middle" class="box-sub mono-label">Streamlit UI · app/app.py</text>
+          <text x="170" y="112" text-anchor="middle" class="box-note">click buttons, see the report</text>
+        </g>
+
+        <g class="box-claude">
+          <rect x="580" y="40" width="260" height="100" rx="14" stroke-width="1.5"></rect>
+          <text x="710" y="70" text-anchor="middle" class="box-title">Claude (Anthropic API)</text>
+          <text x="710" y="90" text-anchor="middle" class="box-sub mono-label">the reasoning brain</text>
+          <text x="710" y="112" text-anchor="middle" class="box-note">decides what to check next</text>
+        </g>
+
+        <g class="box-agent">
+          <rect x="290" y="230" width="300" height="110" rx="14" stroke-width="1.5"></rect>
+          <text x="440" y="262" text-anchor="middle" class="box-title">Agent Engine</text>
+          <text x="440" y="282" text-anchor="middle" class="box-sub mono-label">app/agent.py</text>
+          <text x="440" y="304" text-anchor="middle" class="box-note">the coordinator — no AI logic itself,</text>
+          <text x="440" y="318" text-anchor="middle" class="box-note">just relays messages back and forth</text>
+        </g>
+
+        <g class="box-mcp">
+          <rect x="290" y="420" width="300" height="100" rx="14" stroke-width="1.5"></rect>
+          <text x="440" y="450" text-anchor="middle" class="box-title">MCP Server</text>
+          <text x="440" y="470" text-anchor="middle" class="box-sub mono-label">mcp_server/ · read-only toolbox</text>
+          <text x="440" y="492" text-anchor="middle" class="box-note">the only thing allowed near the database</text>
+        </g>
+
+        <g class="box-pg">
+          <rect x="290" y="590" width="300" height="90" rx="14" stroke-width="1.5"></rect>
+          <text x="440" y="620" text-anchor="middle" class="box-title">PostgreSQL</text>
+          <text x="440" y="640" text-anchor="middle" class="box-sub mono-label">the database being audited</text>
+          <text x="440" y="662" text-anchor="middle" class="box-note">connected via a SELECT-only role</text>
+        </g>
+
+        <g class="box-log">
+          <rect x="660" y="440" width="180" height="80" rx="14" stroke-width="1.5"></rect>
+          <text x="750" y="470" text-anchor="middle" class="box-title" style="font-size:13px;">Audit Log</text>
+          <text x="750" y="488" text-anchor="middle" class="box-sub mono-label" style="font-size:10px;">audit.jsonl</text>
+          <text x="750" y="506" text-anchor="middle" class="box-note" style="font-size:9.5px;">record of every action</text>
+        </g>
+
+        <!-- Browser <-> Agent Engine -->
+        <line x1="155" y1="140" x2="405" y2="228" class="arrow-line" marker-end="url(#arrowhead)"></line>
+        <text x="150" y="175" class="arrow-label">① click "Run Audit"</text>
+        <line x1="425" y1="228" x2="195" y2="140" class="arrow-line" marker-end="url(#arrowhead)"></line>
+        <text x="270" y="205" text-anchor="end" class="arrow-label">⑥ shows the report</text>
+
+        <!-- Agent Engine <-> Claude (the loop) -->
+        <line x1="470" y1="230" x2="675" y2="142" class="arrow-line claude" marker-end="url(#arrowhead-claude)"></line>
+        <text x="472" y="195" class="arrow-label claude">② "what should I check?"</text>
+        <line x1="725" y1="142" x2="510" y2="230" class="arrow-line claude" marker-end="url(#arrowhead-claude)"></line>
+        <text x="560" y="170" class="arrow-label claude">③ "run this tool"</text>
+        <text x="440" y="205" text-anchor="middle" class="box-note" style="font-style:normal;">↻ repeats until Claude has enough evidence (up to ~40 times)</text>
+
+        <!-- Agent Engine <-> MCP Server -->
+        <line x1="410" y1="340" x2="410" y2="418" class="arrow-line" marker-end="url(#arrowhead)"></line>
+        <line x1="470" y1="418" x2="470" y2="340" class="arrow-line" marker-end="url(#arrowhead)"></line>
+        <text x="490" y="382" class="arrow-label">④ tool call (JSON) /</text>
+        <text x="490" y="398" class="arrow-label">masked result</text>
+
+        <!-- MCP Server <-> Postgres -->
+        <line x1="410" y1="520" x2="410" y2="588" class="arrow-line" marker-end="url(#arrowhead)"></line>
+        <line x1="470" y1="588" x2="470" y2="520" class="arrow-line" marker-end="url(#arrowhead)"></line>
+        <text x="490" y="550" class="arrow-label">⑤ read-only SQL /</text>
+        <text x="490" y="566" class="arrow-label">raw rows</text>
+
+        <!-- MCP Server -> Audit Log -->
+        <line x1="592" y1="465" x2="656" y2="472" class="arrow-line" marker-end="url(#arrowhead)"></line>
+        <text x="595" y="440" class="arrow-label" style="font-size:10.5px;">logs every single action</text>
+
+        <!-- Final answer note -->
+        <text x="710" y="160" text-anchor="middle" class="box-note">last reply = final scorecard + findings</text>
+      </svg>
+      <figcaption>The full loop for one "Run Audit" click. Steps ②③ repeat many times before Claude is confident enough to give a final answer — that's what makes it an <em>agent</em> rather than a fixed script.</figcaption>
+    </figure>
+
+    <h3>Walking through it in words</h3>
+    <ol class="steps">
+      <li><span class="step-num">1</span><div class="step-body"><p><b>You click "Run Audit"</b> in the browser. Streamlit calls a Python function — nothing has happened with your data yet.</p></div></li>
+      <li><span class="step-num claude">2</span><div class="step-body"><p><b>The Agent Engine asks Claude</b> "here's the database, here's your instructions, go" — this is the first real network call, over the internet, to Anthropic's API.</p></div></li>
+      <li><span class="step-num claude">3</span><div class="step-body"><p><b>Claude replies</b> "call this tool" — e.g. <code class="mono">inspect_schema</code> or <code class="mono">profile_table</code> — instead of writing an answer directly.</p></div></li>
+      <li><span class="step-num">4</span><div class="step-body"><p><b>The Agent Engine relays that request</b> to the MCP Server — a separate little program running on the same machine, talking over a local pipe, not the internet.</p></div></li>
+      <li><span class="step-num">5</span><div class="step-body"><p><b>The MCP Server runs a real, read-only SQL query</b> against Postgres — but only after checking it's a plain <code class="mono">SELECT</code>, that the target table is in an allowed list, and capping how many rows can come back.</p></div></li>
+      <li><span class="step-num">6</span><div class="step-body"><p><b>Before the result goes anywhere else</b>, the MCP Server masks anything that looks like personal information, writes one line to the audit log describing exactly what just happened, and only then hands back a safe summary.</p></div></li>
+      <li><span class="step-num claude">7</span><div class="step-body"><p><b>That safe result goes back to Claude</b> (steps 2–6 repeat — sometimes a handful of times, sometimes dozens) until Claude decides it has checked enough.</p></div></li>
+      <li><span class="step-num">8</span><div class="step-body"><p><b>Claude's final reply</b> is a structured report — scores, findings, severities — which the Agent Engine hands to the browser to render as charts and a downloadable file.</p></div></li>
+    </ol>
+  </section>
+
+  <!-- ================= FILE MAP ================= -->
+  <section id="files">
+    <div class="section-kicker">03 · What's actually in the repository</div>
+    <h2>File map: what each piece does and why</h2>
+    <p class="lede">Grouped by the same five layers as the diagram above. Click a group to expand it.</p>
+
+    <details class="filegroup" open>
+      <summary>🧰 <span>mcp_server/ — the toolbox (only thing allowed near the database)</span> <span class="tag">9 tools, all read-only</span></summary>
+      <table class="filetable">
+        <tr><td>config.py</td><td>Reads connection settings and governance limits (row caps, timeouts, allowed schemas) from environment variables — never hard-coded.</td></tr>
+        <tr><td>server.py</td><td>The actual MCP server process. Registers all 9 tools Claude is allowed to call, with their descriptions and input shapes.</td></tr>
+        <tr><td>tools/db.py</td><td>Owns the real Postgres connection, plus the single most important safety check: rejects any SQL that isn't exactly one <code class="mono">SELECT</code> statement, and safely escapes table/column names so a weird name can't smuggle in extra SQL.</td></tr>
+        <tr><td>tools/governance.py</td><td>The choke point every tool routes through: checks the schema is on the allow-list, masks PII, writes the audit log entry — applied the same way no matter which tool is calling.</td></tr>
+        <tr><td>tools/pii.py</td><td>The actual "does this look like personal information" logic — column-name hints (like <code class="mono">email</code>) plus pattern matching on the values themselves.</td></tr>
+        <tr><td>tools/audit_log.py</td><td>Appends one line to a permanent log file for every single database action, success or failure.</td></tr>
+        <tr><td>tools/schema_tools.py</td><td>Lists tables, columns, and how tables link together (primary/foreign keys).</td></tr>
+        <tr><td>tools/profiling_tools.py</td><td>Counts blank values, distinct values, min/max per column — the "completeness" and "validity" checks.</td></tr>
+        <tr><td>tools/integrity_tools.py</td><td>Finds duplicate values in columns that should be unique, and links between tables that point to something that no longer exists.</td></tr>
+        <tr><td>tools/pii_tools.py</td><td>Samples some rows and classifies which columns look like personal data — without ever handing the raw values back.</td></tr>
+        <tr><td>tools/query_tools.py</td><td>Lets Claude write its own custom read-only SQL for anything the fixed tools above don't cover.</td></tr>
+        <tr><td>tools/audit_tools.py</td><td>Lets the log be read back — "what have I already checked in this run?"</td></tr>
+      </table>
+    </details>
+
+    <details class="filegroup" open>
+      <summary>🧠 <span>app/ — the brain + the face</span> <span class="tag">talks to Claude, renders the UI</span></summary>
+      <table class="filetable">
+        <tr><td>agent.py</td><td>Runs the loop from the diagram above: ask Claude → get a tool request → call the MCP server → send the result back → repeat → capture the final report.</td></tr>
+        <tr><td>prompts.py</td><td>The exact written instructions given to Claude: what to check, how to score it, and hard rules like "never repeat a raw PII value."</td></tr>
+        <tr><td>config.py</td><td>The Claude API key and which model to use (defaults to Claude Sonnet 5).</td></tr>
+        <tr><td>app.py</td><td>The Streamlit web page itself — the three tabs (Schema Browser, Run Audit, Audit Log) and the buttons.</td></tr>
+        <tr><td>ui/charts.py &amp; ui/scorecard.py</td><td>Turn the JSON report into the gauge, bar charts, findings list, and the downloadable Markdown report.</td></tr>
+      </table>
+    </details>
+
+    <details class="filegroup">
+      <summary>📊 <span>eval/ — the report card for the AI itself</span> <span class="tag">tests the agent's judgment, not just the code</span></summary>
+      <table class="filetable">
+        <tr><td>rubrics.yaml</td><td>The official, versioned definition of "good enough" — score weights per dimension, and pass/fail thresholds for release.</td></tr>
+        <tr><td>eval_runner.py</td><td>Runs the real agent against 4 practice databases and grades what it finds against known-correct answers.</td></tr>
+        <tr><td>fixtures/</td><td>The 4 practice databases (missing data, duplicates, broken links, hidden PII, stale data) plus the "correct answer" for each.</td></tr>
+        <tr><td>schemas/findings.schema.json</td><td>The exact shape Claude's final answer must match — if it doesn't, the run is thrown out rather than trusted.</td></tr>
+      </table>
+    </details>
+
+    <details class="filegroup">
+      <summary>🗄️ <span>db/ — test data &amp; setup</span> <span class="tag">how to stand up a safe practice database</span></summary>
+      <table class="filetable">
+        <tr><td>README.md</td><td>Exact SQL for creating the safe, read-only database role — the one thing the agent is ever allowed to connect as.</td></tr>
+        <tr><td>seed/*.sql</td><td>Scripts that build the 4 practice databases used by the eval suite and local testing.</td></tr>
+      </table>
+    </details>
+
+    <details class="filegroup">
+      <summary>📁 <span>01–12 numbered folders — the paperwork trail</span> <span class="tag">why "audit-ready" is more than a slogan</span></summary>
+      <table class="filetable">
+        <tr><td>01–02</td><td>Business requirements, then precise technical requirements — "what exactly must this do."</td></tr>
+        <tr><td>03</td><td>The architecture document — the same diagram on this page, in more formal detail.</td></tr>
+        <tr><td>04–07</td><td>Test strategy, test plan, test cases, and an edge-case catalog — including a real security bug found and fixed during the build.</td></tr>
+        <tr><td>08</td><td>A traceability matrix linking every requirement to the test that proves it works.</td></tr>
+        <tr><td>09–10</td><td>What was actually tested (with results), and a defect log of every bug found and fixed.</td></tr>
+        <tr><td>11</td><td>Sign-off checklist for a human reviewer before this goes live.</td></tr>
+        <tr><td>12</td><td>The eval framework's own specification document.</td></tr>
+      </table>
+    </details>
+
+    <details class="filegroup">
+      <summary>✅ <span>tests/ — proof it works</span> <span class="tag">runs in seconds, no AI involved</span></summary>
+      <table class="filetable">
+        <tr><td>test_db_guardrails.py</td><td>Proves the SELECT-only check actually blocks a <code class="mono">DELETE</code>, a <code class="mono">DROP TABLE</code>, and sneakier tricks.</td></tr>
+        <tr><td>test_pii.py</td><td>Proves the PII masking never lets a real value slip through.</td></tr>
+        <tr><td>test_live_integration.py</td><td>Runs the real tools against a real Postgres database — this is how two of the real bugs described below were found.</td></tr>
+      </table>
+    </details>
+  </section>
+
+  <!-- ================= FRAMEWORK ================= -->
+  <section id="framework">
+    <div class="section-kicker">04 · What "data quality" and "governance" mean here</div>
+    <h2>The framework, in plain language</h2>
+    <p class="lede">Every table gets scored 0–100 on five dimensions, then rolled up into one grade.</p>
+
+    <div class="dim-grid">
+      <div class="dim-card"><span class="ic">🧩</span><b>Completeness</b><p>Are the boxes filled in? (missing emails, blank dates)</p></div>
+      <div class="dim-card"><span class="ic">✅</span><b>Validity</b><p>Does the data make sense? (no negative ages, no fake dates)</p></div>
+      <div class="dim-card"><span class="ic">🔁</span><b>Uniqueness</b><p>Any accidental duplicates? (same customer, twice)</p></div>
+      <div class="dim-card"><span class="ic">🔗</span><b>Consistency</b><p>Do linked tables agree? (an order pointing to a deleted customer)</p></div>
+      <div class="dim-card"><span class="ic">⏱️</span><b>Timeliness</b><p>Is it fresh, or has a pipeline quietly stopped updating?</p></div>
+    </div>
+
+    <p><b>"Governance" adds three more guarantees on top of the scoring:</b></p>
+    <div class="gov-grid">
+      <div class="gov-card"><b>🕶️ Privacy</b><p>Before <em>anything</em> reaches Claude, a filter disguises anything PII-shaped: <code>jane@x.com</code> becomes <code>j***@***.com</code>. This happens in plain Python, in <code>mcp_server/tools/pii.py</code> — not something we merely <em>ask</em> the AI to do.</p></div>
+      <div class="gov-card"><b>🧾 Proof</b><p>Every question the AI ever asks the database is written to a permanent log — even ones that don't end up in the final report. An auditor can independently reconstruct exactly what happened.</p></div>
+      <div class="gov-card"><b>🎯 Trust</b><p>Before a new version ships, it's graded against 4 practice databases with known-correct answers. Miss too much, or leak one PII value, and it fails the test — a rule, not a hope.</p></div>
+    </div>
+  </section>
+
+  <!-- ================= WHERE CLAUDE FITS ================= -->
+  <section id="llm">
+    <div class="section-kicker">05 · Where the AI is actually involved</div>
+    <h2>Where Claude comes in — and where it doesn't</h2>
+    <p>There are exactly <b>two buttons</b> in the app that ever talk to Claude's API over the internet:</p>
+    <ul style="color:var(--text-dim); padding-left:20px;">
+      <li style="margin-bottom:8px;"><b>Inspect Schema</b> — one short exchange with Claude, mostly just reading table structure.</li>
+      <li><b>Run Audit</b> — the main event. Claude has a back-and-forth conversation with itself: decide what to check → call a tool → read the result → decide what's next. This can be anywhere from a handful to around 40 separate exchanges (a configurable safety cap, so it can't run forever).</li>
+    </ul>
+    <div class="callout accent">
+      <p><b>Everything else is 100% ordinary code.</b> The SQL queries, the null counts, the duplicate checks, the orphaned-link checks — all plain Python and SQL, computed by deterministic code with zero AI involved. Claude's only two jobs are: <b>(1)</b> decide <em>what</em> to check and <em>when</em> to stop, and <b>(2)</b> turn raw numbers into a written judgment call (a severity, a plain-English description). It never writes a query by hand for the fixed checks — it just calls tools that already exist.</p>
+    </div>
+  </section>
+
+  <!-- ================= AUDIT READY ================= -->
+  <section id="audit-ready">
+    <div class="section-kicker">06 · What "audit-ready" is actually buying you</div>
+    <h2>Four guarantees, not a slogan</h2>
+    <ol class="steps">
+      <li><span class="step-num">🔒</span><div class="step-body"><p><b>Read-only, enforced twice.</b> The database login itself can't write — and even if it somehow could, a separate code-level check independently blocks anything that isn't a plain read.</p></div></li>
+      <li><span class="step-num">🕶️</span><div class="step-body"><p><b>PII masked before the model ever sees it.</b> Not a prompt asking Claude to behave — a hard filter in the code, upstream of every API call.</p></div></li>
+      <li><span class="step-num">🧾</span><div class="step-body"><p><b>Every action logged, independent of the report.</b> The log is the source of truth for "what actually happened," separate from — and stricter than — whatever the AI chose to summarize.</p></div></li>
+      <li><span class="step-num">📐</span><div class="step-body"><p><b>Output shape is contractually checked.</b> If Claude's final answer doesn't match the exact expected structure, the run is thrown out rather than shown to you as if it were trustworthy.</p></div></li>
+    </ol>
+  </section>
+
+  <!-- ================= MINIMIZE LLM ================= -->
+  <section id="minimize">
+    <div class="section-kicker">07 · If you want to use as little AI as possible</div>
+    <h2>Three modes, from full agent to zero LLM</h2>
+    <p class="lede">The 4 baseline checks (nulls, duplicates, broken links, PII) are already plain Python functions in <code class="mono">mcp_server/tools/</code>. Nothing stops you from calling them directly, without ever asking Claude to decide to.</p>
+
+    <div class="modes">
+      <div class="mode-card">
+        <span class="mode-badge">as built</span>
+        <div class="mode-title">Full Agent</div>
+        <div class="mode-pipe"><span class="chip">SQL checks</span> → <span class="chip claude">Claude × 10–40</span> → <span class="chip">report</span></div>
+        <p>Claude decides what to check, in what order, and when to stop. Most thorough and adaptive — it can notice things nobody thought to hard-code a rule for.</p>
+        <div class="mode-cost">~$0.10 – $0.50 per audit</div>
+      </div>
+      <div class="mode-card reco">
+        <span class="mode-badge">recommended middle ground</span>
+        <div class="mode-title">Hybrid / Guided</div>
+        <div class="mode-pipe"><span class="chip">SQL checks</span> → <span class="chip claude">Claude × 1</span> → <span class="chip">report</span></div>
+        <p>Run every baseline check yourself with a plain Python script (no AI, no decision-making needed for fixed checks) — then make exactly <b>one</b> Claude call at the end, handing it the raw numbers and asking for the write-up and severities.</p>
+        <div class="mode-cost">~$0.01 – $0.03 per audit</div>
+      </div>
+      <div class="mode-card">
+        <span class="mode-badge">zero AI</span>
+        <div class="mode-title">Classic DQ Dashboard</div>
+        <div class="mode-pipe"><span class="chip">SQL checks</span> → <span class="chip off">Claude</span> → <span class="chip">report</span></div>
+        <p>Skip Claude entirely. Run the SQL checks, apply fixed thresholds you write yourself ("flag if nulls &gt; 5%"), show the numbers. Free, but it can only ever catch what you explicitly told it to look for.</p>
+        <div class="mode-cost">$0 API cost</div>
+      </div>
+    </div>
+    <p style="font-size:13.5px;">The <b>Hybrid</b> mode is usually the sweet spot: 10–20× cheaper than the full agent, still gets a written, judgment-based report instead of a raw numbers table, and is a small code change — not a rewrite — since the underlying checks are already separate, callable functions.</p>
+  </section>
+
+  <!-- ================= COST ================= -->
+  <section id="cost">
+    <div class="section-kicker">08 · What this costs to run in production</div>
+    <h2>Cost estimate</h2>
+    <p class="lede">Split into two very different lines: the <b>AI API bill</b> (small, and the part people worry about most) and <b>infrastructure</b> (hosting the app and the database — usually the bigger line).</p>
+
+    <h3>1. Claude API cost, per audit</h3>
+    <p style="font-size:13px;">Based on <b>Claude Sonnet 5</b> pricing: <span class="mono">$2.00</span> per million input tokens, <span class="mono">$10.00</span> per million output tokens. Each turn in the loop re-sends the growing conversation so far — that's how the API works — so the total moves more tokens than it looks like from the outside.</p>
+    <table class="data">
+      <tr><th>Scenario</th><th class="num">API calls</th><th class="num">~Input tokens</th><th class="num">~Output tokens</th><th class="num">Estimated cost</th></tr>
+      <tr><td>Full Agent — small DB (5–10 tables)</td><td class="num">8–15</td><td class="num">50K–100K</td><td class="num">3K–6K</td><td class="num">$0.10 – $0.25</td></tr>
+      <tr><td>Full Agent — larger DB (30–50 tables)</td><td class="num">25–40</td><td class="num">150K–300K</td><td class="num">8K–15K</td><td class="num">$0.40 – $0.90</td></tr>
+      <tr><td>Hybrid — one summarizing call, any DB size</td><td class="num">1</td><td class="num">3K–8K</td><td class="num">1K–2K</td><td class="num">$0.01 – $0.03</td></tr>
+    </table>
+    <p style="font-size:12.5px; color:var(--text-faint);">These are estimates from the shape of the code, not a measured bill — token usage depends on your actual schema size and how many findings show up. The app doesn't currently log <code class="mono">response.usage</code> anywhere; adding that to the audit log is the fastest way to get real numbers for your own database.</p>
+
+    <h3>2. Monthly totals (Full Agent mode)</h3>
+    <table class="data">
+      <tr><th>Usage pattern</th><th class="num">Audits / month</th><th class="num">Est. monthly API cost</th></tr>
+      <tr><td>A few spot-checks</td><td class="num">30</td><td class="num">$3 – $8</td></tr>
+      <tr><td>Daily audit of a small warehouse</td><td class="num">300</td><td class="num">$30 – $75</td></tr>
+      <tr><td>Continuous monitoring, several DBs</td><td class="num">1,000+</td><td class="num">$100 – $300+</td></tr>
+      <tr class="total"><td>Same volume, Hybrid mode</td><td class="num">—</td><td class="num">≈10–20× cheaper</td></tr>
+    </table>
+
+    <h3>3. Infrastructure (the other line item — often bigger)</h3>
+    <table class="data">
+      <tr><th>Component</th><th>Typical range</th></tr>
+      <tr><td>Small VM/App Service to run Streamlit + the MCP server</td><td>$10 – $40 / month (or free-tier for light use)</td></tr>
+      <tr><td>Managed PostgreSQL (if you don't already have one)</td><td>$0 (existing DB) – $15 – $100+ / month depending on size</td></tr>
+      <tr><td>Anything else</td><td>None needed — no vector database, no queue, no extra services</td></tr>
+    </table>
+
+    <div class="callout money">
+      <p><b>Rule of thumb:</b> for a small-to-mid-size team, expect roughly <b>$30–$150/month total</b>, and — especially in Hybrid mode — the AI bill is usually the <em>smaller</em> line, not the bigger one. The honest way to know for sure is to run a week of real audits and read the actual numbers off the Anthropic Console usage dashboard, rather than trust anyone's estimate, this page included.</p>
+    </div>
+  </section>
+
+  <footer>
+    Built for <span class="mono">data-quality-governance-agent/</span> — see <span class="mono">README.md</span> and <span class="mono">AUDIT-READINESS.md</span> in the repo for the full detail behind every section above.
+  </footer>
+</div>
